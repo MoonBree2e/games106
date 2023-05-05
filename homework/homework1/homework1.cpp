@@ -213,9 +213,9 @@ public:
 			std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
 				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
 				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-				//vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-				//vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
-				//vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), 
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), 
 			};
 			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI{};
 			descriptorSetLayoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -264,9 +264,11 @@ public:
 			std::vector<VkDescriptorImageInfo> imageDescriptors = {
 				glTFModel.images[glTFModel.textures[material.baseColorTextureIndex].imageIndex].texture.descriptor,
 				glTFModel.images[glTFModel.textures[material.normalTextureIndex].imageIndex].texture.descriptor,
+				glTFModel.images[glTFModel.textures[material.aoTextureIndex].imageIndex].texture.descriptor,
+				glTFModel.images[glTFModel.textures[material.metallicRoughnessTextureIndex].imageIndex].texture.descriptor,
 			};
 
-			std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{};
+			std::array<VkWriteDescriptorSet, 4> writeDescriptorSets{};
 			for (size_t i = 0; i < imageDescriptors.size(); i++) {
 				writeDescriptorSets[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				writeDescriptorSets[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

@@ -2,9 +2,11 @@
 
 layout (set = 1, binding = 0) uniform sampler2D albedoMap;
 layout (set = 1, binding = 1) uniform sampler2D normalMap;
-//layout (set = 1, binding = 2) uniform sampler2D aoMap;
-//layout (set = 1, binding = 3) uniform sampler2D metallicMap;
-//layout (set = 1, binding = 4) uniform sampler2D roughnessMap;
+layout (set = 1, binding = 2) uniform sampler2D aoMap;
+layout (set = 1, binding = 3) uniform sampler2D metallicRoughnessMap;
+
+// Roughness is stored in the 'g' channel, metallic is stored in the 'b' channel.
+// This layout intentionally reserves the 'r' channel for (optional) occlusion map data
 
 layout (location = 0) in vec3 inWorldPos;
 layout (location = 1) in vec3 inNormal;
@@ -30,6 +32,16 @@ layout (location = 0) out vec4 outFragColor;
 const float PI = 3.14159265359;
 #define ALBEDO pow(texture(albedoMap, inUV).rgb, vec3(2.2))
 
+vec3 calculateNormal()
+{
+	vec3 tangentNormal = texture(normalMap, inUV).xyz * 2.0 - 1.0;
+
+	vec3 N = normalize(inNormal);
+	vec3 T = normalize(inTangent.xyz);
+	vec3 B = normalize(cross(N, T));
+	mat3 TBN = mat3(T, B, N);
+	return normalize(TBN * tangentNormal);
+}
 
 // Normal Distribution function --------------------------------------
 float D_GGX(float dotNH, float roughness)
@@ -95,9 +107,11 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
 // ----------------------------------------------------------------------------
 void main() 
 {
-	outFragColor = vec4(ALBEDO, 1.0);	
+//	outFragColor = vec4(ALBEDO, 1.0);	
 
-//	outFragColor = vec4(texture(normalMap, inUV).rgb, 1.0);	
+//	outFragColor = vec4(calculateNormal(), 1.0);	
+	outFragColor = vec4(texture(metallicRoughnessMap, inUV).bbb, 1.0);	
+
 //	outFragColor = vec4(inNormal, 1.0);		
 
 }

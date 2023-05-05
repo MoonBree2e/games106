@@ -198,8 +198,14 @@ void VulkanglTFModel::loadMaterials(tinygltf::Model& input)
 		if (glTFMaterial.values.find("baseColorTexture") != glTFMaterial.values.end()) {
 			materials[i].baseColorTextureIndex = glTFMaterial.values["baseColorTexture"].TextureIndex();
 		}
+		if (glTFMaterial.values.find("metallicRoughnessTexture") != glTFMaterial.values.end()) {
+			materials[i].metallicRoughnessTextureIndex = glTFMaterial.values["metallicRoughnessTexture"].TextureIndex();
+		}
 		if (glTFMaterial.additionalValues.find("normalTexture") != glTFMaterial.additionalValues.end()) {
 			materials[i].normalTextureIndex = glTFMaterial.additionalValues["normalTexture"].TextureIndex();
+		}
+		if (glTFMaterial.additionalValues.find("occlusionTexture") != glTFMaterial.additionalValues.end()) {
+			materials[i].aoTextureIndex = glTFMaterial.additionalValues["occlusionTexture"].TextureIndex();
 		}
 	}
 }
@@ -390,7 +396,6 @@ void VulkanglTFModel::drawNode(VkCommandBuffer commandBuffer, VkPipelineLayout p
 						materials[primitive->materialIndex].descriptorSet,
 						node->mesh->uniformBuffer.descriptorSet,
 					};
-					//vkCmdBindDescriptorSets(commandBuffers[cbIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, static_cast<uint32_t>(descriptorsets.size()), descriptorsets.data(), 0, NULL);
 
 					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1, static_cast<uint32_t>(descriptorsets.size()), descriptorsets.data(), 0, nullptr);
 					vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, primitive->firstIndex, 0, 0);

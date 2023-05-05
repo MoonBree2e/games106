@@ -142,6 +142,9 @@ public:
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		uint32_t baseColorTextureIndex;
 		uint32_t normalTextureIndex;
+		uint32_t aoTextureIndex;
+		uint32_t metallicRoughnessTextureIndex;
+
 		VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 	};
 
