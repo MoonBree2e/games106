@@ -3,14 +3,15 @@
 layout (location = 0) in vec3 inPos;
 layout (location = 1) in vec3 inNormal;
 layout (location = 2) in vec2 inUV;
-layout (location = 3) in vec3 inColor;
+layout (location = 3) in vec4 inTangent;
+layout (location = 4) in vec4 inColor;
 
 layout (set = 0, binding = 0) uniform UBOScene
 {
 	mat4 projection;
+	mat4 model;
 	mat4 view;
-	vec4 lightPos;
-	vec4 viewPos;
+	vec3 camPos;
 } uboScene;
 
 layout (set = 2, binding = 0) uniform UBONode
@@ -18,22 +19,22 @@ layout (set = 2, binding = 0) uniform UBONode
 	mat4 model;
 } uboNode;
 
-layout (location = 0) out vec3 outNormal;
-layout (location = 1) out vec3 outColor;
+layout (location = 0) out vec3 outWorldPos;
+layout (location = 1) out vec3 outNormal;
 layout (location = 2) out vec2 outUV;
-layout (location = 3) out vec3 outViewVec;
-layout (location = 4) out vec3 outLightVec;
+layout (location = 3) out vec4 outTangent;
+layout (location = 4) out vec4 outColor;
+
 
 void main() 
 {
-	outNormal = inNormal;
+	mat4 model = uboScene.model * uboNode.model;
+	vec4 locPos = model * vec4(inPos, 1.0);
+	outWorldPos = locPos.xyz / locPos.w;
+	outNormal = normalize(transpose(inverse(mat3(model))) * inNormal);
+	outTangent = vec4(mat3(model) * inTangent.xyz, inTangent.w);
 	outColor = inColor;
 	outUV = inUV;
-	gl_Position = uboScene.projection * uboScene.view * uboNode.model * vec4(inPos.xyz, 1.0);
-	
-	vec4 pos = uboScene.view * vec4(inPos, 1.0);
-	outNormal = mat3(uboScene.view) * inNormal;
-	vec3 lPos = mat3(uboScene.view) * uboScene.lightPos.xyz;
-	outLightVec = uboScene.lightPos.xyz - pos.xyz;
-	outViewVec = uboScene.viewPos.xyz - pos.xyz;	
+
+	gl_Position = uboScene.projection * uboScene.view * vec4(outWorldPos, 1.0);
 }
