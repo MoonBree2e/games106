@@ -26,10 +26,12 @@ layout (set = 0, binding = 1) uniform UBOParams {
 	float exposure;
 	float gamma;
 } uboParams;
+// layout (set = 0, binding = 2) uniform samplerCube samplerIrradiance;
 
 layout (location = 0) out vec4 outFragColor;
 
 const float PI = 3.14159265359;
+//#define ROUGHNESS_PATTERN 1
 #define ALBEDO pow(texture(albedoMap, inUV).rgb, vec3(2.2))
 
 vec3 calculateNormal()
@@ -65,6 +67,8 @@ float G_SchlicksmithGGX(float dotNL, float dotNV, float roughness)
 // Fresnel function ----------------------------------------------------
 vec3 F_Schlick(float cosTheta, float metallic)
 {
+    // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
+    // of 0.04 and if it's a metal, use the albedo color as F0 (metallic workflow)    
 	vec3 F0 = mix(vec3(0.04), ALBEDO, metallic); // * material.specular
 	vec3 F = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0); 
 	return F;    
@@ -72,7 +76,7 @@ vec3 F_Schlick(float cosTheta, float metallic)
 
 // Specular BRDF composition --------------------------------------------
 
-vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
+vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness, vec3 radiance)
 {
 	// Precalculate vectors and dot products	
 	vec3 H = normalize (V + L);
@@ -80,9 +84,6 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
 	float dotNL = clamp(dot(N, L), 0.0, 1.0);
 	float dotLH = clamp(dot(L, H), 0.0, 1.0);
 	float dotNH = clamp(dot(N, H), 0.0, 1.0);
-
-	// Light color fixed
-	vec3 lightColor = vec3(1.0);
 
 	vec3 color = vec3(0.0);
 
@@ -95,10 +96,22 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
 		float G = G_SchlicksmithGGX(dotNL, dotNV, rroughness);
 		// F = Fresnel factor (Reflectance depending on angle of incidence)
 		vec3 F = F_Schlick(dotNV, metallic);
-
+		vec3 numerator    = D * G * F; 
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
+		vec3 specular = numerator / denominator;
+		// kS is equal to Fresnel
+        vec3 kS = F;
+        // for energy conservation, the diffuse and specular light can't
+        // be above 1.0 (unless the surface emits light); to preserve this
+        // relationship the diffuse component (kD) should equal 1.0 - kS.
+        vec3 kD = vec3(1.0) - kS;
+        // multiply kD by the inverse metalness such that only non-metals 
+        // have diffuse lighting, or a linear blend if partly metal (pure metals
+        // have no diffuse light).
+        kD *= 1.0 - metallic;	  
 		vec3 spec = D * F * G / (4.0 * dotNL * dotNV);
 
-		color += spec * dotNL * lightColor;
+		color += (kD * ALBEDO / PI + specular) * radiance * dotNL;
 	}
 
 	return color;
@@ -107,11 +120,42 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
 // ----------------------------------------------------------------------------
 void main() 
 {
+
+	vec3 N = normalize(calculateNormal());
+	vec3 V = normalize(ubo.camPos - inWorldPos);
+
+	float roughness = texture(metallicRoughnessMap, inUV).g;
+	float metallic = texture(metallicRoughnessMap, inUV).b;
+	// Add striped pattern to roughness based on vertex position
+#ifdef ROUGHNESS_PATTERN
+	roughness = max(roughness, step(fract(inWorldPos.y * 2.02), 0.5));
+#endif
+
+	// Specular contribution
+	vec3 Lo = vec3(0.0);
+	for (int i = 0; i < uboParams.lights.length(); i++) {
+		vec3 L = normalize(uboParams.lights[i].xyz - inWorldPos);
+		float distance = length(uboParams.lights[i].xyz - inWorldPos);
+        float attenuation = 1.0 / (distance * distance);
+		vec3 lightColor = vec3(1.0);
+        vec3 radiance = lightColor * attenuation;
+		Lo += BRDF(L, V, N, metallic, roughness, radiance);
+	};
+
+	// Combine with ambient
+	vec3 color = ALBEDO * 0.02;
+	color += Lo;
+
+	// HDR tonemapping
+    color = color / (color + vec3(1.0));
+
+	// Gamma correct
+	color = pow(color, vec3(0.4545));
+
+	outFragColor = vec4(color, 1.0);
+
 //	outFragColor = vec4(ALBEDO, 1.0);	
-
 //	outFragColor = vec4(calculateNormal(), 1.0);	
-	outFragColor = vec4(texture(metallicRoughnessMap, inUV).bbb, 1.0);	
-
+//	outFragColor = vec4(texture(metallicRoughnessMap, inUV).bbb, 1.0);	
 //	outFragColor = vec4(inNormal, 1.0);		
-
 }

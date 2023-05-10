@@ -25,7 +25,7 @@
 #endif
 #include "vulkanexamplebase.h"
 #include "hw1_VulkanglTFModel.h"
-#define ENABLE_VALIDATION false
+#define ENABLE_VALIDATION true
 
 
 
@@ -90,6 +90,7 @@ public:
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.matrices, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.material, nullptr);
+		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.node, nullptr);
 
 		uniformBuffers.object.destroy();
 		uniformBuffers.params.destroy();
@@ -195,20 +196,26 @@ public:
 		}
 
 		std::vector<VkDescriptorPoolSize> poolSizes = {
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 + meshCount),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 + meshCount + 1000),
 			// One combined image sampler per model image/texture
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(glTFModel.images.size())),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(glTFModel.images.size()) + 1000),
 		};
 		// One set for matrices and one per model image/texture
-		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 1 + meshCount;
+		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 1 + meshCount + 200;
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, maxSetCount);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
 		// Descriptor set layout for passing matrices
-		VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
-		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
-		// Descriptor set layout for passing material textures
+		{
+			std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+			};
+
+			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings.data(), setLayoutBindings.size());
+			VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
+		}
+			// Descriptor set layout for passing material textures
 		{
 			std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
 				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
@@ -251,10 +258,16 @@ public:
 		}
 
 		// Descriptor set for scene matrices
-		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
-		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
-		VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffers.object.descriptor);
-		vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
+		{
+			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
+			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
+			std::vector<VkWriteDescriptorSet> writeDescriptorSets =
+			{
+				vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffers.object.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &uniformBuffers.params.descriptor),
+			};
+			vkUpdateDescriptorSets(device, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, nullptr);
+		}
 		
 		// Descriptor sets for materials
 		for (auto& material : glTFModel.materials) {
@@ -300,7 +313,9 @@ public:
 			vks::initializers::vertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, pos)),	// Location 0: Position
 			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, normal)),// Location 1: Normal
 			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, uv)),	// Location 2: Texture coordinates
-			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, color)),	// Location 3: Color
+			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, tangent)),	// Location 3: Tangent
+			vks::initializers::vertexInputAttributeDescription(0, 4, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, color)),	// Location 4: Color
+
 		};
 		VkPipelineVertexInputStateCreateInfo vertexInputStateCI = vks::initializers::pipelineVertexInputStateCreateInfo();
 		vertexInputStateCI.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());
@@ -362,11 +377,11 @@ public:
 
 	void updateParams()
 	{
-		const float p = 15.0f;
-		uboParams.lights[0] = glm::vec4(-p, -p * 0.5f, -p, 1.0f);
-		uboParams.lights[1] = glm::vec4(-p, -p * 0.5f, p, 1.0f);
-		uboParams.lights[2] = glm::vec4(p, -p * 0.5f, p, 1.0f);
-		uboParams.lights[3] = glm::vec4(p, -p * 0.5f, -p, 1.0f);
+		const float p = 1.0f;
+		uboParams.lights[0] = glm::vec4(-p, p * 0.5f, p, 1.0f);
+		uboParams.lights[1] = glm::vec4(-p, p * 0.5f, p, 1.0f);
+		uboParams.lights[2] = glm::vec4(p, p * 0.5f, p, 1.0f);
+		uboParams.lights[3] = glm::vec4(p, p * 0.5f, p, 1.0f);
 
 		memcpy(uniformBuffers.params.mapped, &uboParams, sizeof(uboParams));
 	}
