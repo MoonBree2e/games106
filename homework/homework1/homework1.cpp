@@ -35,6 +35,15 @@ public:
 	bool wireframe = false;
 
 	VulkanglTFModel glTFModel;
+	VulkanglTFModel skyboxModel;
+
+	struct Textures {
+		vks::TextureCubeMap environmentCube;
+		// Generated at runtime
+		vks::Texture2D lutBrdf;
+		vks::TextureCubeMap irradianceCube;
+		vks::TextureCubeMap prefilteredCube;
+	} textures;
 
 	struct UBOMatrices {
 		glm::mat4 projection;
@@ -52,15 +61,21 @@ public:
 	struct {
 		vks::Buffer object;
 		vks::Buffer params;
+		vks::Buffer skybox;
 	} uniformBuffers;
 
 	struct Pipelines {
 		VkPipeline solid;
 		VkPipeline wireframe = VK_NULL_HANDLE;
+		VkPipeline skybox = VK_NULL_HANDLE;
 	} pipelines;
 
 	VkPipelineLayout pipelineLayout;
-	VkDescriptorSet descriptorSet;
+
+	struct {
+		VkDescriptorSet scene;
+		VkDescriptorSet skybox;
+	} descriptorSets;
 
 	struct DescriptorSetLayouts {
 		VkDescriptorSetLayout matrices;
@@ -72,7 +87,7 @@ public:
 	{
 		title = "homework1";
 		camera.type = Camera::CameraType::lookat;
-		camera.flipY = true;
+		//camera.flipY = true;
 		camera.setPosition(glm::vec3(0.0f, -0.1f, -1.0f));
 		camera.setRotation(glm::vec3(0.0f, 45.0f, 0.0f));
 		camera.setPerspective(60.0f, (float)width / (float)height, 0.1f, 256.0f);
@@ -86,6 +101,7 @@ public:
 		if (pipelines.wireframe != VK_NULL_HANDLE) {
 			vkDestroyPipeline(device, pipelines.wireframe, nullptr);
 		}
+		vkDestroyPipeline(device, pipelines.skybox, nullptr);
 
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.matrices, nullptr);
@@ -94,6 +110,8 @@ public:
 
 		uniformBuffers.object.destroy();
 		uniformBuffers.params.destroy();
+		uniformBuffers.skybox.destroy();
+		textures.environmentCube.destroy();
 	}
 
 	virtual void getEnabledFeatures()
@@ -102,6 +120,37 @@ public:
 		if (deviceFeatures.fillModeNonSolid) {
 			enabledFeatures.fillModeNonSolid = VK_TRUE;
 		};
+	}
+
+	void renderSkybox(VulkanglTFModel& model, VkCommandBuffer& commandBuffer, VkPipelineLayout& pipelineLayout)
+	{
+		VkDeviceSize offsets[1] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &model.vertices.buffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, model.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+		for (auto& node : model.nodes) {
+			renderSkyboxNode(commandBuffer, pipelineLayout, node);
+		}
+	}
+	void renderSkyboxNode(VkCommandBuffer& commandBuffer, VkPipelineLayout& pipelineLayout, VulkanglTFModel::Node* node)
+	{
+		if (node->mesh) {
+			if (node->mesh->primitives.size() > 0) {
+				// Pass the node's matrix via push constants
+				// Traverse the node hierarchy to the top-most parent to get the final matrix of the current node
+				glm::mat4 nodeMatrix = node->getMatrix();
+				// Pass the final matrix to the vertex shader using push constants
+				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
+				for (VulkanglTFModel::Primitive* primitive : node->mesh->primitives) {
+					if (primitive->indexCount > 0) {
+						//vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets.skybox, 0, nullptr);
+						vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, primitive->firstIndex, 0, 0);
+					}
+				}
+			}
+		}
+		for (auto& child : node->children) {
+			renderSkyboxNode(commandBuffer, pipelineLayout, child);
+		}
 	}
 
 	void buildCommandBuffers()
@@ -132,8 +181,13 @@ public:
 			vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 			vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
 			vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
-			// Bind scene matrices descriptor to set 0
-			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+			// skybox
+			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets.skybox, 0, nullptr);
+			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.skybox);
+			renderSkybox(skyboxModel, drawCmdBuffers[i], pipelineLayout);
+
+			//Bind scene matrices descriptor to set 0
+			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets.scene, 0, nullptr);
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, wireframe ? pipelines.wireframe : pipelines.solid);
 			glTFModel.draw(drawCmdBuffers[i], pipelineLayout);
 			drawUI(drawCmdBuffers[i]);
@@ -142,14 +196,18 @@ public:
 		}
 	}
 	
-	void loadglTFFile(std::string filename)
+	void loadglTFFile(std::string filename, VulkanglTFModel& model, uint32_t fileLoadingFlags = VulkanglTFModel::FileLoadingFlags::None)
 	{
-		glTFModel.loadFromFile(filename, vulkanDevice, queue);
+		model.loadFromFile(filename, vulkanDevice, queue, fileLoadingFlags);
 	}
 
 	void loadAssets()
 	{
-		loadglTFFile(getAssetPath() + "buster_drone/busterDrone.gltf");
+		loadglTFFile(getAssetPath() + "buster_drone/busterDrone.gltf", glTFModel);
+		loadglTFFile(getAssetPath() + "models/cube.gltf", skyboxModel);
+		textures.environmentCube.loadFromFile(getAssetPath() + "textures/hdr/pisa_cube.ktx", VK_FORMAT_R16G16B16A16_SFLOAT, vulkanDevice, queue);
+		//uint32_t glTFLoadingFlags = vkglTF::FileLoadingFlags::PreTransformVertices | vkglTF::FileLoadingFlags::FlipY;
+		//models.skybox.loadFromFile(getAssetPath() + "models/cube.gltf", vulkanDevice, queue, glTFLoadingFlags);
 	}
 
 	void setupNodeDescriptorSet(VulkanglTFModel::Node* node) {
@@ -210,6 +268,7 @@ public:
 			std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
 				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
 				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+				vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
 			};
 
 			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings.data(), setLayoutBindings.size());
@@ -260,11 +319,12 @@ public:
 		// Descriptor set for scene matrices
 		{
 			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
-			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
+			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.scene));
 			std::vector<VkWriteDescriptorSet> writeDescriptorSets =
 			{
-				vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffers.object.descriptor),
-				vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &uniformBuffers.params.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSets.scene, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffers.object.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSets.scene, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &uniformBuffers.params.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSets.scene, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.environmentCube.descriptor),
 			};
 			vkUpdateDescriptorSets(device, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, nullptr);
 		}
@@ -292,12 +352,24 @@ public:
 			}
 			vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
 		}
+
+		// Descriptor sets for skybox
+		{
+			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
+			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.skybox));
+			std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+				vks::initializers::writeDescriptorSet(descriptorSets.skybox, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformBuffers.skybox.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSets.skybox, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &uniformBuffers.params.descriptor),
+				vks::initializers::writeDescriptorSet(descriptorSets.skybox, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.environmentCube.descriptor),
+			};
+			vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
+		}
 	}
 
 	void preparePipelines()
 	{
 		VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCI = vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
-		VkPipelineRasterizationStateCreateInfo rasterizationStateCI = vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE, 0);
+		VkPipelineRasterizationStateCreateInfo rasterizationStateCI = vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, 0);
 		VkPipelineColorBlendAttachmentState blendAttachmentStateCI = vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
 		VkPipelineColorBlendStateCreateInfo colorBlendStateCI = vks::initializers::pipelineColorBlendStateCreateInfo(1, &blendAttachmentStateCI);
 		VkPipelineDepthStencilStateCreateInfo depthStencilStateCI = vks::initializers::pipelineDepthStencilStateCreateInfo(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS_OR_EQUAL);
@@ -323,7 +395,7 @@ public:
 		vertexInputStateCI.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
 		vertexInputStateCI.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
-		const std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
+		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
@@ -342,6 +414,11 @@ public:
 
 		// Solid rendering pipeline
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCI, nullptr, &pipelines.solid));
+
+		// skybox pipeline
+		shaderStages[0] = loadShader(getHomeworkShadersPath() + "homework1/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		shaderStages[1] = loadShader(getHomeworkShadersPath() + "homework1/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCI, nullptr, &pipelines.skybox));
 
 		// Wire frame rendering pipeline
 		if (deviceFeatures.fillModeNonSolid) {
@@ -367,9 +444,16 @@ public:
 			&uniformBuffers.params,
 			sizeof(uboParams)));
 
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			&uniformBuffers.skybox,
+			sizeof(uboMatrices)));
+
 		// Map persistent
 		VK_CHECK_RESULT(uniformBuffers.object.map());
 		VK_CHECK_RESULT(uniformBuffers.params.map());
+		VK_CHECK_RESULT(uniformBuffers.skybox.map());
 
 		updateUniformBuffers();
 		updateParams();
@@ -394,6 +478,13 @@ public:
 		uboMatrices.camPos = camera.viewPos;
 
 		memcpy(uniformBuffers.object.mapped, &uboMatrices, sizeof(uboMatrices));
+
+		// skybox
+		{
+			//uboMatrices.projection[1][1] *= -1;
+			uboMatrices.model = glm::mat4(glm::mat3(camera.matrices.view));
+			memcpy(uniformBuffers.skybox.mapped, &uboMatrices, sizeof(uboMatrices));
+		}
 	}
 
 	void prepare()

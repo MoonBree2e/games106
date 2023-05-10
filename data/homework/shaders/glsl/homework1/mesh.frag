@@ -26,7 +26,7 @@ layout (set = 0, binding = 1) uniform UBOParams {
 	float exposure;
 	float gamma;
 } uboParams;
-// layout (set = 0, binding = 2) uniform samplerCube samplerIrradiance;
+layout (set = 0, binding = 2) uniform samplerCube samplerIrradiance;
 
 layout (location = 0) out vec4 outFragColor;
 

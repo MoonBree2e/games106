@@ -21,7 +21,7 @@ VulkanglTFModel::~VulkanglTFModel()
 	}
 }
 
-void VulkanglTFModel::loadFromFile(std::string filename, vks::VulkanDevice* device, VkQueue transferQueue, float scale)
+void VulkanglTFModel::loadFromFile(std::string filename, vks::VulkanDevice* device, VkQueue transferQueue, uint32_t fileLoadingFlags, float scale)
 {
 	tinygltf::Model gltfModel;
 	tinygltf::TinyGLTF gltfContext;
@@ -65,6 +65,40 @@ void VulkanglTFModel::loadFromFile(std::string filename, vks::VulkanDevice* devi
 	else {
 		vks::tools::exitFatal("Could not open the glTF file.\n\nThe file is part of the additional asset pack.\n\nRun \"download_assets.py\" in the repository root to download the latest version.", -1);
 		return;
+	}
+
+	// Pre-Calculations for requested features
+	if ((fileLoadingFlags & FileLoadingFlags::PreTransformVertices) || (fileLoadingFlags & FileLoadingFlags::PreMultiplyVertexColors) || (fileLoadingFlags & FileLoadingFlags::FlipY)) {
+		const bool preTransform = fileLoadingFlags & FileLoadingFlags::PreTransformVertices;
+		const bool preMultiplyColor = fileLoadingFlags & FileLoadingFlags::PreMultiplyVertexColors;
+		const bool flipY = fileLoadingFlags & FileLoadingFlags::FlipY;
+		for (auto& vertex : vertexBuffer)
+		{
+			if (flipY) {
+				vertex.pos.y *= -1.0f;
+				vertex.normal.y *= -1.0f;
+			}
+		}
+		//for (Node* node : linearNodes) {
+		//	if (node->mesh) {
+		//		const glm::mat4 localMatrix = node->getMatrix();
+		//		for (Primitive* primitive : node->mesh->primitives) {
+		//			for (uint32_t i = 0; i < primitive->indexCount; i++) {
+		//				Vertex& vertex = vertexBuffer[indexBuffer[primitive->firstIndex + i]];
+		//				// Pre-transform vertex positions by node-hierarchy
+		//				if (preTransform) {
+		//					vertex.pos = glm::vec3(localMatrix * glm::vec4(vertex.pos, 1.0f));
+		//					vertex.normal = glm::normalize(glm::mat3(localMatrix) * vertex.normal);
+		//				}
+		//				// Flip Y-Axis of vertex positions
+		//				if (flipY) {
+		//					vertex.pos.y *= -1.0f;
+		//					vertex.normal.y *= -1.0f;
+		//				}
+		//			}
+		//		}
+		//	}
+		//}
 	}
 
 	// Create and upload vertex and index buffer

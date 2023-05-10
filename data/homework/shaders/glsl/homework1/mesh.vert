@@ -30,6 +30,8 @@ void main()
 {
 	mat4 model = uboScene.model * uboNode.model;
 	vec4 locPos = model * vec4(inPos, 1.0);
+	locPos.y = -locPos.y;
+
 	outWorldPos = locPos.xyz / locPos.w;
 	outNormal = normalize(transpose(inverse(mat3(model))) * inNormal);
 	outTangent = vec4(mat3(model) * inTangent.xyz, inTangent.w);
